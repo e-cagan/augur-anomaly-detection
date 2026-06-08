@@ -8,15 +8,15 @@ __pycache__/
 .idea/
 .DS_Store
 
-# Virtual environment and YOLO
+# Virtual environment
 .env
 .env.example
 venv/
 .venv
 runs/
-data/
+ucsd/
+shangai/
 
-data/
 *.pt
 *.pth
 *.onnx

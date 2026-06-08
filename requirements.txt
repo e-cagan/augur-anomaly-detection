@@ -42,3 +42,4 @@ pytest
 pytest-asyncio
 black
 ruff
+kagglehub
