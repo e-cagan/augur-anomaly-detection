@@ -2,7 +2,6 @@
 Module for dataset and dataloaders of UCSD dataset.
 """
 
-import os
 import re
 from pathlib import Path
 from typing import List, Tuple, Optional
@@ -38,6 +37,7 @@ class UCSDDataset(Dataset):
         window_size: int = 16,
         stride: int = 8,
         transform: Optional[callable] = None,
+        clip_indices: Optional[List[int]] = None
     ):
         super().__init__()
         self.root = Path(root)
@@ -46,6 +46,7 @@ class UCSDDataset(Dataset):
         self.window_size = window_size
         self.stride = stride
         self.transform = transform
+        self.clip_indices = clip_indices
 
         # Subset check
         assert subset in ("ped1", "ped2"), f"subset must be ped1 or ped2, got {subset}"
@@ -61,6 +62,11 @@ class UCSDDataset(Dataset):
             d for d in self.subset_split.iterdir() 
             if d.is_dir() and not d.name.endswith("_gt")
         ])
+
+        # Filter out the clips
+        if self.clip_indices is not None:
+            self.clip_dirs = [self.clip_dirs[i] for i in self.clip_indices]
+        
         if len(self.clip_dirs) == 0:
             raise RuntimeError(f"No clip directories found in {self.subset_split}")
 
@@ -128,11 +134,21 @@ class UCSDDataset(Dataset):
 
 if __name__ == "__main__":
     # Run sanity check
-    ds_train = UCSDDataset(root="data/ucsd/raw", subset="ped2", transform=transform, split="train")
+    train_clips = [0,1,2,3,4,5,6,7,8,9,10,11,12]   # 13 clip
+    val_clips   = [13,14,15]                       # 3 clip
+
+    # Train
+    ds_train = UCSDDataset(root="data/ucsd/raw", subset="ped2", clip_indices=train_clips, transform=transform, split="train")
     print(f"Train: {len(ds_train.clips)} clips, {len(ds_train)} windows")
     print(f"First clip shape: {ds_train.clips[0].shape}")
 
-    ds_test = UCSDDataset(root="data/ucsd/raw", subset="ped2", transform=transform, split="test")
+    # Validation
+    ds_val = UCSDDataset(root="data/ucsd/raw", subset="ped2", clip_indices=val_clips, transform=transform, split="train")
+    print(f"Val: {len(ds_val.clips)} clips, {len(ds_val)} windows")
+    print(f"Val labels: {ds_val.labels}") # Should be None
+
+    # Test
+    ds_test = UCSDDataset(root="data/ucsd/raw", subset="ped2", split="test", transform=transform)
     print(f"Test: {len(ds_test.clips)} clips, {len(ds_test)} windows")
     print(f"First label sum: {ds_test.labels[0].sum()}/{len(ds_test.labels[0])}")
 
@@ -143,7 +159,7 @@ if __name__ == "__main__":
     print(f"  Sample range: [{sample.min():.3f}, {sample.max():.3f}]")
     print(f"  Label shape: {label.shape}, sum: {label.sum()}")
 
-    sample, label = ds_test[0]
+    sample, label = ds_val[0]
     print(f"\nSample 0 (test):")
     print(f"  Sample shape: {sample.shape}")
     print(f"  Label shape: {label.shape}, sum: {label.sum()}")
