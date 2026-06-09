@@ -169,4 +169,4 @@ if __name__ == "__main__":
     print(f"\nMiddle train sample shape: {sample.shape}")
 
     # Transform check
-    print(sample.shape)  # torch.Size([16, 1, 256, 256])
+    print(sample.shape)  # torch.Size([16, 1, 128, 128])

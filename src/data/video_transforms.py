@@ -8,9 +8,9 @@ from torchvision.transforms import v2
 
 
 # Input: float32 tensor, shape (T, 1, H, W), range [0, 1]
-# Output: float32 tensor, shape (T, 1, 256, 256), range ~[-1, 1]
+# Output: float32 tensor, shape (T, 1, 128, 128), range ~[-1, 1]
 transform = v2.Compose([
-    v2.Resize(size=(256, 256), antialias=True),
+    v2.Resize(size=(128, 128), antialias=True),
     v2.Normalize(mean=[0.5], std=[0.5]),
 ])
 
