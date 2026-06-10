@@ -1,5 +1,5 @@
 """
-Module to train the models.
+Module to train the vanilla autoencoder model.
 """
 
 import math
