@@ -1,16 +1,17 @@
 """
-Module for pytorch training loop.
+Module for pytorch training and validation functions.
 """
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+from src.training.losses import MemAELoss
 
 
 def train_one_epoch(model: nn.Module, dataloader: DataLoader, criterion: nn.MSELoss, optimizer: optim.Optimizer, device: str) -> float:
     """
-    Function to train the model on a single epoch. Returns the average training loss.
+    Function to train the vanilla autoencoder model on a single epoch. Returns the average training loss.
     """
     
     # Set the model on train mode
@@ -36,7 +37,7 @@ def train_one_epoch(model: nn.Module, dataloader: DataLoader, criterion: nn.MSEL
 
 def validate(model: nn.Module, dataloader: DataLoader, criterion: nn.MSELoss, device: str) -> float:
     """
-    Function to evaluate the model. Returns the average validation loss.
+    Function to evaluate the vanilla autoencoder model. Returns the average validation loss.
     """
 
     # Set the model on eval mode
@@ -57,3 +58,68 @@ def validate(model: nn.Module, dataloader: DataLoader, criterion: nn.MSELoss, de
             running_loss += loss.item() * tensors.size(0)
 
     return running_loss / len(dataloader.dataset)
+
+
+def train_one_epoch_memae(model: nn.Module, dataloader: DataLoader, criterion: MemAELoss, optimizer: optim.Optimizer, device: str) -> tuple:
+    """
+    Function to train the model on a single epoch for memory augmented autoencoder model. Returns the average training loss.
+    """
+    
+    # Set the model on train mode
+    model.train()
+    running_total = 0.0
+    running_recon = 0.0
+    running_entropy = 0.0
+
+    # Iterate within dataloader
+    for tensors, labels in dataloader:
+        # Move the tensors and labels to device
+        tensors, labels = tensors.to(device), labels.to(device)
+        
+        # Core 5-step optimization
+        optimizer.zero_grad(set_to_none=True) # set_to_none=True to optimize memory allocation
+        recon, attn = model(tensors)
+        loss, (recon_loss, entropy) = criterion(recon, tensors, attn)
+        loss.backward()
+        optimizer.step()
+
+        # Scale using batch size
+        bs = tensors.size(0)
+        running_total += loss.item() * bs
+        running_recon += recon_loss.item() * bs
+        running_entropy += entropy.item() * bs
+
+    n = len(dataloader.dataset)
+    return running_total / n, running_recon / n, running_entropy / n
+
+
+def validate_memae(model: nn.Module, dataloader: DataLoader, criterion: MemAELoss, device: str) -> tuple:
+    """
+    Function to evaluate the memory augmented autoencoder model. Returns the average validation loss.
+    """
+
+    # Set the model on eval mode
+    model.eval()
+    running_total = 0.0
+    running_recon = 0.0
+    running_entropy = 0.0
+
+    # Deactivate the gradients for memory optimization
+    # NOTE: inference_mode eliminates gradient overhead, making it faster than no_grad but we'll need the tensors for the future so, no_grad is safer to use
+    with torch.no_grad():
+        # Iterate within dataloader
+        for tensors, labels in dataloader:
+            # Move the tensors and labels to device
+            tensors, labels = tensors.to(device), labels.to(device)
+
+            recon, attn = model(tensors)
+            loss, (recon_loss, entropy) = criterion(recon, tensors, attn)
+
+            # Scale using batch size
+            bs = tensors.size(0)
+            running_total += loss.item() * bs
+            running_recon += recon_loss.item() * bs
+            running_entropy += entropy.item() * bs
+
+    n = len(dataloader.dataset)
+    return running_total / n, running_recon / n, running_entropy / n

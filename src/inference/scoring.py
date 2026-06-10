@@ -49,7 +49,8 @@ def compute_frame_errors(model: nn.Module, dataset: UCSDDataset, device: str) ->
             window = window.to(device)
 
             # Reconstruction
-            recon = model(window)
+            out = model(window)
+            recon = out[0] if isinstance(out, tuple) else out
 
             # Calculate per-frame error with taking the mean based on (C,H,W) channels
             per_frame_err = torch.mean(((window - recon)**2), dim=(0, 2, 3, 4)).cpu().numpy()   # shape: (T,)
