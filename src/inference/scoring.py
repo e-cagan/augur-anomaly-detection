@@ -9,9 +9,15 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from scipy.ndimage import gaussian_filter1d
 from src.data.ucsd_loader import UCSDDataset
 from src.models.autoencoder import AutoEncoder
 from src.data.video_transforms import transform
+
+
+def smooth_scores(scores: np.ndarray, sigma: float = 2.0) -> np.ndarray:
+    """Temporal Gaussian smoothing on a single clip's per-frame scores."""
+    return gaussian_filter1d(scores, sigma=sigma)
 
 
 def compute_frame_errors(model: nn.Module, dataset: UCSDDataset, device: str) -> dict:
@@ -70,6 +76,7 @@ def compute_frame_errors(model: nn.Module, dataset: UCSDDataset, device: str) ->
         
         # Take out the average which gives the result of average error
         scores = errs[valid] / counts[valid]          # Only valid frames
+        scores = smooth_scores(scores, sigma=1.0)     # Clip based smoothing
         labels = dataset.labels[clip_idx][valid]      # Apply same mask
 
         results[clip_idx] = (scores, labels)
