@@ -36,6 +36,7 @@ class UCSDDataset(Dataset):
         split: str = "train",
         window_size: int = 16,
         stride: int = 8,
+        mode: str = "reconstruction",
         transform: Optional[callable] = None,
         clip_indices: Optional[List[int]] = None
     ):
@@ -45,6 +46,7 @@ class UCSDDataset(Dataset):
         self.split = split
         self.window_size = window_size
         self.stride = stride
+        self.mode = mode
         self.transform = transform
         self.clip_indices = clip_indices
 
@@ -130,7 +132,12 @@ class UCSDDataset(Dataset):
         if self.transform is not None:
             window_tensor = self.transform(window_tensor)
 
-        return window_tensor, labels
+        if self.mode == "prediction":
+            input_frames = window_tensor[:-1]   # (15, 1, H, W) — first 15 window
+            target_frame = window_tensor[-1]    # (1, H, W) — last frame, target
+            return input_frames, target_frame
+        else:
+            return window_tensor, labels
 
 if __name__ == "__main__":
     # Run sanity check
@@ -170,3 +177,10 @@ if __name__ == "__main__":
 
     # Transform check
     print(sample.shape)  # torch.Size([16, 1, 128, 128])
+
+    # Prediction
+    ds = UCSDDataset(root="data/ucsd/raw", subset="ped2", split="train",
+                    clip_indices=list(range(13)), transform=transform, mode="prediction")
+    inp, tgt = ds[0]
+    print(f"input: {inp.shape}")    # expected (15, 1, 128, 128)
+    print(f"target: {tgt.shape}")   # expected (1, 128, 128)
