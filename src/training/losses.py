@@ -27,7 +27,7 @@ class MemAELoss(nn.Module):
         eps = 1e-12
 
         # Reconstruction
-        recon_loss = self.mse(recon, target)   # TODO: doğru mu, M1'le aynı
+        recon_loss = self.mse(recon, target)
 
         # Entropy: per-query entropy, then mean
         # E = mean( -sum_i ( w_i * log(w_i + eps) ) )
