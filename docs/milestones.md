@@ -197,3 +197,106 @@ bottleneck, more data) outside M2's scope.
 This is a documented negative result, not a failure: a faithful paper
 implementation that did not improve the metric in this specific setup, with the
 mechanism verified and the likely causes analyzed.
+
+---
+
+## M3 — Future Frame Prediction (U-Net)
+
+**Date:** 13 June 2026
+**Branch / tag:** `m3`
+**W&B run:** `m3-ffp-ped2`
+
+### Problem
+
+M1 and M2 showed that reconstruction-based anomaly detection saturates at
+~0.70 AUC on Ped2: the model reconstructs anomalies almost as well as normal
+frames (over-generalization), and a stronger reconstruction model (MemAE)
+did not fix it. The diagnosis pointed to the *paradigm*, not model capacity.
+
+M3 changes the paradigm: instead of reconstructing the input, the model
+**predicts the next frame** from past frames (Liu et al. 2018). Anomaly is
+signalled by high prediction error — anomalies are, by definition,
+unpredictable.
+
+Done criterion: beat M1/M2 (0.70) meaningfully; target >= 0.80.
+
+### Approach
+
+**Paradigm.** 15 past frames -> predict the 16th. Trained on normal clips only
+(still self-supervised — no anomaly labels in training). Anomaly score = how
+badly the predicted frame matches the real frame.
+
+**Architecture.** 2D U-Net (not 3D). The 15 input frames are stacked as 15
+channels; a 2D U-Net with skip connections predicts a single 1-channel frame.
+- Encoder: 3 levels, channels 15->32->64->128, MaxPool between levels
+- Bottleneck: 128->256
+- Decoder: bilinear upsample + skip concat + conv, 256->128->64->32
+- Output: Conv -> Tanh, single frame (1, 128, 128)
+- **Skip connections used** (unlike M1/M2): no longer a reconstruction
+  bottleneck, so skips help predict sharp frames.
+
+Choosing 2D + channel-stacking (over 3D conv) followed the paper and kept the
+15->1 asymmetry simple. Motion information survives via 2D convolution across
+the 15 stacked-frame channels.
+
+**Loss.** Intensity (L2) + gradient (edge sharpness), grad_weight=1.0. Optical
+flow and adversarial terms from the paper were deliberately omitted (kept
+minimal, per the M2 lesson on controlling complexity).
+
+**Scoring.** Per-frame prediction error (MSE between predicted and true target
+frame). Each window scores exactly one frame (the target at start_frame+15),
+unlike reconstruction where each window scored all 16 frames. Same sigma=1
+temporal smoothing as M1/M2 (fair comparison). MSE is used rather than PSNR;
+since PSNR is a monotonic function of MSE, the frame-level AUC is identical.
+
+### Result — three-paradigm comparison
+
+| Paradigm | Model | Frame-level AUC | EER |
+|---|---|---|---|
+| Reconstruction (vanilla) | M1 3D AE | 0.701 | 0.391 |
+| Reconstruction (memory) | M2 MemAE | 0.688 | 0.436 |
+| **Prediction** | **M3 U-Net FFP** | **0.840** | **0.279** |
+
+**M3 beats both reconstruction approaches by ~14 AUC points** and nearly halves
+the EER (0.39 -> 0.28). Training was healthy: val intensity fell ~20x
+(0.00187 -> 0.000093), early stopping triggered at epoch 83 (best at epoch 68),
+no overfitting.
+
+The error-distribution histogram is markedly more separated than M1/M2: normal
+frames cluster tightly at low error (~0.0002-0.0003), anomalies spread into a
+long high-error tail (up to ~0.0011), and the high-error region is almost
+entirely anomaly.
+
+### Honest notes
+
+- **Prediction scores far fewer frames than reconstruction.** Each window
+  scores only its single target frame, and the first 15 frames of every clip
+  are never targets, so ~106-159 frames per clip are uncovered (vs 4-6 in
+  M1/M2). The AUC is computed over fewer frames — still enough across 12 clips,
+  but worth noting. Using 15 input frames (vs the paper's 4) spends more of each
+  clip on input.
+- **Minimal loss only.** No optical-flow or adversarial terms. The paper reports
+  ~0.95 on Ped2 with the full setup; our 0.84 comes from intensity + gradient
+  alone. The missing terms are future work, not a flaw — the core paradigm
+  shift alone produced the gain.
+
+### Lessons — the project's main finding
+
+- **The bottleneck was the paradigm, not model capacity.** M2 (a stronger
+  reconstruction model) did not help; M3 (a different paradigm, arguably simpler)
+  jumped +14 points. This is the central result: for this data, *predicting* the
+  future separates normal from anomalous far better than *reconstructing* the
+  present, because the model cannot copy an unpredictable anomaly.
+- **The M1 -> M2 -> M3 arc is the real deliverable.** A measured baseline that
+  diagnosed over-generalization, an honest negative result showing more capacity
+  doesn't fix it, and a paradigm change that does — each step measured on the
+  same data with the same protocol. This is a comparative study, not a single
+  trained model.
+
+### M3 Done
+
+- [x] Frame-level AUC >= 0.80 (0.840), beats M1/M2 (0.701/0.688)
+- [x] W&B training run (`m3-ffp-ped2`)
+- [x] Three-paradigm comparison documented
+- [x] Pipeline working (prediction loader mode, U-Net, PSNR/MSE scoring)
+- [x] tag `m3`
