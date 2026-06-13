@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from src.training.losses import MemAELoss
+from src.training.losses import MemAELoss, PredictionLoss
 
 
 def train_one_epoch(model: nn.Module, dataloader: DataLoader, criterion: nn.MSELoss, optimizer: optim.Optimizer, device: str) -> float:
@@ -123,3 +123,61 @@ def validate_memae(model: nn.Module, dataloader: DataLoader, criterion: MemAELos
 
     n = len(dataloader.dataset)
     return running_total / n, running_recon / n, running_entropy / n
+
+
+def train_one_epoch_pred(model: nn.Module, dataloader: DataLoader, criterion: PredictionLoss, optimizer: optim.Optimizer, device: str) -> tuple:
+    """
+    Function to train our prediction model.
+    """
+    
+    model.train()
+    running_total = 0.0
+    running_intensity = 0.0
+    running_gradient = 0.0
+
+    for inputs, targets in dataloader:
+        inputs, targets = inputs.to(device), targets.to(device)
+
+        optimizer.zero_grad(set_to_none=True)
+        preds = model(inputs)                                   # (B,1,H,W), single tensor
+        loss, (intensity, gradient) = criterion(preds, targets)
+        loss.backward()
+        optimizer.step()
+
+        bs = inputs.size(0)
+        running_total += loss.item() * bs
+        running_intensity += intensity.item() * bs
+        running_gradient += gradient.item() * bs
+
+    n = len(dataloader.dataset)
+    return running_total / n, running_intensity / n, running_gradient / n
+
+
+def validate_pred(model: nn.Module, dataloader: DataLoader, criterion: PredictionLoss, device: str) -> tuple:
+    """
+    Function to evaluate the prediction model. Returns the average validation, intensity and gradient losses.
+    """
+
+    # Set the model on eval mode
+    model.eval()
+    running_total = 0.0
+    running_intensity = 0.0
+    running_gradient = 0.0
+
+    with torch.no_grad():
+        # Iterate within dataloader
+        for inputs, targets in dataloader:
+            # Move the tensors and labels to device
+            inputs, targets = inputs.to(device), targets.to(device)
+
+            preds = model(inputs)
+            loss, (intensity, gradient) = criterion(preds, targets)
+
+            # Scale using batch size
+            bs = inputs.size(0)
+            running_total += loss.item() * bs
+            running_intensity += intensity.item() * bs
+            running_gradient += gradient.item() * bs
+
+    n = len(dataloader.dataset)
+    return running_total / n, running_intensity / n, running_gradient / n
