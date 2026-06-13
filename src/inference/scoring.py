@@ -109,6 +109,62 @@ def aggregate_all(results: dict) -> tuple:
     return all_scores, all_labels
 
 
+def compute_prediction_errors(model: nn.Module, dataset: UCSDDataset, device: str) -> dict:
+    """
+    Per-frame prediction error for M3.
+    Each window (15 input -> 1 target) scores ONE frame: the target frame
+    at index (start_frame + 15) in its clip.
+    """
+    model.eval()
+
+    # Per-clip accumulator. Many frames are never a target:
+    # the first 15 frames of each clip are always inputs, never predicted.
+    error_sum = {}
+    count = {}
+    for clip_idx in range(len(dataset.clips)):
+        n_frames = len(dataset.clips[clip_idx])
+        error_sum[clip_idx] = np.zeros(n_frames, dtype=np.float64)
+        count[clip_idx] = np.zeros(n_frames, dtype=np.float64)
+
+    loader = DataLoader(dataset, batch_size=1, shuffle=False)
+
+    with torch.no_grad():
+        for idx, (inputs, target) in enumerate(loader):
+            # inputs: (1,15,1,H,W), target: (1,1,H,W)
+            inputs, target = inputs.to(device), target.to(device)
+            pred = model(inputs)                      # (1,1,H,W)
+
+            # Single target frame -> one scalar error (mean over C,H,W)
+            err = ((pred - target) ** 2).mean().item()
+
+            # Which clip / which target frame does this window predict?
+            clip_idx, start_frame = dataset.windows[idx]
+            target_idx = start_frame + 15   # first 15 are inputs, 16th is target
+            error_sum[clip_idx][target_idx] += err
+            count[clip_idx][target_idx] += 1
+
+    # Average + align ground truth (count>0 mask, like M1/M2).
+    # NOTE: first 15 frames + uncovered frames have count==0, masked out.
+    results = {}
+    for clip_idx in error_sum:
+        counts = count[clip_idx]
+        errs = error_sum[clip_idx]
+
+        # Log frames with no coverage (expected: at least the first 15)
+        print(f"clip {clip_idx}: {(counts==0).sum()} frames with no prediction coverage")
+
+        # Keep only frames that were predicted at least once
+        valid = counts > 0
+
+        scores = errs[valid] / counts[valid]          # average error per frame
+        scores = smooth_scores(scores, sigma=1.0)     # clip-level temporal smoothing
+        labels = dataset.labels[clip_idx][valid]      # same mask -> alignment
+
+        results[clip_idx] = (scores, labels)
+
+    return results
+
+
 if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
