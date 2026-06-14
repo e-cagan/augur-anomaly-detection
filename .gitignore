@@ -26,3 +26,4 @@ wandb/
 mlruns/
 .pytest_cache/
 *.egg-info/
+frontend/node_modules

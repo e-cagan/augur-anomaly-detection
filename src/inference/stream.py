@@ -23,12 +23,6 @@ class AnomalyStream:
     def preprocess(self, frame_bgr: np.ndarray) -> torch.Tensor:
         """
         Raw video frame (H,W,3 BGR) -> training format (1, H, W) [-1,1] grayscale 128x128.
-        TODO:
-          - BGR -> grayscale (cv2.cvtColor)
-          - to tensor, float, /255 -> [0,1]
-          - shape (1, H, W) -- unsqueeze channel
-          - apply `transform` (resize 128, normalize [-1,1])
-        Return: tensor (1, 128, 128), single frame
         """
         # BGR -> grayscale (numpy, uint8, (H,W))
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
@@ -73,31 +67,40 @@ class AnomalyStream:
         # Update the buffer
         self.buffer.append(frame_t)
 
-        return score, heatmap
+        return score, heatmap, frame_t.numpy()[0]   # (128,128) preprocessed target image
 
 
-def process_video(video_path: str, onnx_path: str):
+def process_video(video_path, onnx_path, top_n=5):
     """Run the stream over a video file, collect per-frame scores."""
     stream = AnomalyStream(onnx_path)
     cap = cv2.VideoCapture(video_path)
 
     scores = []
+    scored_records = []   # (score, frame_idx, heatmap, frame_image)
+
     frame_idx = 0
     while True:
-        # Read the frame
         ret, frame = cap.read()
         if not ret:
             break
         result = stream.push(frame)
         if result is None:
-            scores.append(None)   # warming up
+            scores.append(None)
         else:
-            score, heatmap = result
+            score, heatmap, frame_img = result
             scores.append(score)
+            scored_records.append((score, frame_idx, heatmap, frame_img))
         frame_idx += 1
-
     cap.release()
-    return scores
+
+    # Top-N highest scored frame
+    top = sorted(scored_records, key=lambda r: r[0], reverse=True)[:top_n]
+    top_anomalies = [
+        {"frame_idx": idx, "score": float(s), "heatmap": hmap, "frame": img}
+        for (s, idx, hmap, img) in top
+    ]
+
+    return scores, top_anomalies
 
 
 def process_frames(frame_dir: str, onnx_path: str):
@@ -130,10 +133,7 @@ if __name__ == "__main__":
     onnx_path = "checkpoints/model.onnx"
     clip_dir = "data/ucsd/raw/UCSDped2/Test/Test001"   # a test clip
 
-    scores = process_frames(clip_dir, onnx_path)
-    valid = [s for s in scores if s is not None]
-
-    print(f"total frames: {len(scores)}")
-    print(f"scored: {len(valid)}, warmup (None): {len(scores) - len(valid)}")
-    print(f"score range: [{min(valid):.6e}, {max(valid):.6e}]")
-    print(f"first 5 scores: {[f'{s:.6e}' for s in valid[:5]]}")
+    scores, top = process_video("/tmp/test001.mp4", "checkpoints/model.onnx", top_n=5)
+    print(f"scored: {len([s for s in scores if s is not None])}, top anomalies: {len(top)}")
+    for t in top:
+        print(f"  frame {t['frame_idx']}: score {t['score']:.6e}, heatmap {t['heatmap'].shape}, frame {t['frame'].shape}")
