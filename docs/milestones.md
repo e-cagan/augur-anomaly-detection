@@ -300,3 +300,121 @@ entirely anomaly.
 - [x] Three-paradigm comparison documented
 - [x] Pipeline working (prediction loader mode, U-Net, PSNR/MSE scoring)
 - [x] tag `m3`
+
+---
+
+## M4 — Real-Time Inference + API
+
+**Date:** 15 June 2026
+**Branch / tag:** `m4`
+
+### Problem
+
+M3 produced the winning model (future-frame prediction, AUC 0.840), but as a
+training checkpoint it is not usable: there is no way to feed it a video and get
+an anomaly readout. M4 turns the model into a deployable service — video in,
+per-frame anomaly timeline out — running near real-time, with a visual frontend.
+
+Done criterion: upload a video -> per-frame anomaly scores + timeline; latency
+< 200 ms per frame; a frontend that shows where and when anomalies occur.
+
+### Approach
+
+**Deployed model: M3** (not M1/M2). The three-paradigm comparison decided this —
+prediction beat reconstruction by ~14 AUC points.
+
+**Pipeline:** video -> rolling 15-frame buffer -> ONNX predict next frame ->
+MSE(prediction, actual) = anomaly score -> threshold -> timeline + heatmap.
+
+**4.1 ONNX export.** `UNetPredictor` (`pred_best.pt`) exported to ONNX with a
+dynamic batch axis. PyTorch-vs-ONNX-Runtime parity verified: max abs diff
+**6.48e-07** (well under 1e-4). The deployed model is numerically identical to
+the evaluated one. (opset auto-bumped 17->18 because the Resize op from
+`nn.Upsample` has no opset-17 adapter; export succeeded at 18.)
+
+**4.2 Streaming pipeline.** `AnomalyStream`: a rolling 15-frame deque. For each
+new frame, the model predicts it from the previous 15; MSE vs the actual frame
+is the anomaly score, and the per-pixel error map is kept as a heatmap. Predict
+*before* appending the new frame to the buffer (no leakage). The first 15 frames
+of any stream cannot be scored (cold start) — they are flagged, not silently
+zeroed. Verified against eval: streaming scores match `compute_prediction_errors`
+in range and structure.
+
+**4.3 Threshold calibration.** Calibrated from the normal training distribution,
+not guessed. Ran the stream over all 16 normal training clips (2310 frames),
+all normal by construction:
+
+| statistic | value |
+|---|---|
+| normal mean | 0.000153 |
+| normal std | 0.000069 |
+| normal max | 0.000421 |
+| mean + 2*std | 0.000291 |
+| mean + 3*std | 0.000360 |
+
+Compared the two candidate thresholds on the test split:
+
+| threshold | precision | recall | F1 | TP | FP | FN |
+|---|---|---|---|---|---|---|
+| mean + 2*std (0.000291) | 0.940 | 0.716 | **0.813** | 141 | 9 | 56 |
+| mean + 3*std (0.000360) | 1.000 | 0.467 | 0.637 | 92 | 0 | 105 |
+
+**Selected mean + 2*std = 0.000291.** The 3*std threshold has perfect precision
+but misses more than half the anomalies (recall 0.47) — useless for monitoring.
+2*std nearly doubles recall (0.72) for only 9 false positives, and wins on F1.
+For surveillance, not missing anomalies outweighs the occasional false alarm.
+
+**4.4 FastAPI backend.** `POST /predict` accepts a video upload, runs the stream,
+returns per-frame scores + the overlay images of the top-5 most anomalous frames.
+Model verified once at startup; CORS enabled for the frontend. Validated
+end-to-end via curl: Test001 -> 180 frames, 15 warm-up, 165 scored, 117 flagged,
+score range [2.09e-4, 4.34e-4] — consistent with eval. Anomaly indices form
+contiguous blocks (meaningful temporal detection, not isolated noise).
+
+**4.5 Latency.** Measured per-frame inference (model + scoring, decode excluded),
+ONNX-CPU, batch=1:
+
+| metric | value |
+|---|---|
+| mean | 16.9 ms |
+| median | 15.0 ms |
+| p95 | 20.5 ms |
+| throughput | **59 fps** |
+
+Far under the 200 ms target. At 59 fps vs the video's 10 fps, the system is
+~6x real-time on CPU alone — no GPU or TensorRT needed (consistent with prior
+projects: measure first, optimize only if needed).
+
+**4.6 Frontend (AUGUR).** React/Vite + recharts. A surveillance-instrument
+console: the anomaly timeline ("the surprise trace") with the calibrated
+threshold as an amber tripwire line and contiguous anomaly regions as glowing
+alarm bands. Below it, the top-5 anomalous moments as heatmap-over-frame
+overlays — showing *where* in the frame the model was most surprised. Warm-up
+frames render as a gap in the trace (honest cold-start).
+
+### Honest notes
+
+- **Heatmap is localization by prediction error, not object detection.** The
+  overlay highlights where prediction error is high — it does not detect or
+  label objects. Bright regions mean "unexpected motion here", not "bicycle
+  detected". Each heatmap is normalized within its own frame, so brightness is
+  not comparable across frames (fine for "where in this frame", not for ranking
+  frames by it).
+- **Threshold selected on the test split.** Calibrated from normal-only training
+  data, but the 2*std-vs-3*std choice used test-split precision/recall. Val has
+  no anomalies, so this is a pragmatic necessity that carries mild test bias
+  (same caveat as M1's sigma selection). Sample is small (~233 frames), so the
+  precision/recall figures are estimates, not precise rates.
+- **Per-request ONNX session.** The backend builds a new session per call. Fine
+  for a demo; share a pre-loaded session for production throughput.
+
+### M4 Done
+
+- [x] ONNX export + parity check (6.48e-07)
+- [x] Streaming pipeline (15-frame buffer, cold start, heatmap)
+- [x] Threshold calibrated from normal distribution, 2*std selected with
+      precision/recall justification
+- [x] FastAPI backend (POST /predict), validated end-to-end
+- [x] Latency measured: 16.9 ms / 59 fps, real-time on CPU
+- [x] Frontend: timeline + threshold + anomaly bands + heatmap overlays
+- [x] tag `m4`
