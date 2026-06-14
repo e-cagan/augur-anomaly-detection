@@ -4,6 +4,8 @@ Frame-level AUC + EER + error histogram.
 """
 
 import torch
+import numpy as np
+from sklearn.metrics import precision_score, recall_score, f1_score, confusion_matrix
 from src.models.predictor import UNetPredictor
 from src.data.ucsd_loader import UCSDDataset
 from src.data.video_transforms import transform
@@ -37,3 +39,14 @@ if __name__ == "__main__":
     eer = compute_eer(all_scores, all_labels)
     print(f"FFP Frame-level AUC: {auc:.4f}")
     print(f"FFP EER: {eer:.4f}")
+
+    # all_scores, all_labels: eval'den (test split, prediction scoring)
+    for k, thr in [(2, 0.000291), (3, 0.000360)]:
+        preds = (all_scores > thr).astype(int)   # eşik üstü = anomali
+        prec = precision_score(all_labels, preds)
+        rec  = recall_score(all_labels, preds)
+        f1   = f1_score(all_labels, preds)
+        tn, fp, fn, tp = confusion_matrix(all_labels, preds).ravel()
+        print(f"\nthreshold mean+{k}std = {thr:.6f}")
+        print(f"  precision: {prec:.3f}  recall: {rec:.3f}  f1: {f1:.3f}")
+        print(f"  TP={tp} FP={fp} FN={fn} TN={tn}")
