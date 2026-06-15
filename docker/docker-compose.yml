@@ -1,0 +1,30 @@
+# Full AUGUR stack: backend (ONNX inference API) + frontend (nginx serving the
+# UI and proxying /api to the backend).
+#
+# Run from the repo root:
+#     docker compose -f docker/docker-compose.yml up --build
+#
+# Then open http://localhost:8080 in the browser.
+
+services:
+  backend:
+    build:
+      context: ..                       # repo root (Dockerfile COPYs src/, backend/, checkpoints/)
+      dockerfile: docker/Dockerfile.backend
+    image: augur-backend
+    # No host port needed: only the frontend talks to it, over the internal
+    # network by the service name "backend". Expose internally only.
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..                       # repo root (Dockerfile COPYs frontend/ and docker/nginx.conf)
+      dockerfile: docker/Dockerfile.frontend
+    image: augur-frontend
+    ports:
+      - "8080:80"                       # browser -> http://localhost:8080
+    depends_on:
+      - backend
+    restart: unless-stopped

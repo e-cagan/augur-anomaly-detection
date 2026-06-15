@@ -11,7 +11,7 @@ import {
   Tooltip,
 } from "recharts";
 
-const API_URL = "http://localhost:8000/predict";
+const API_URL = import.meta.env.VITE_API_URL || "/api/predict";
 
 /* Extract contiguous anomaly regions [start, end] from the frame list.
    These become the glowing alarm bands behind the trace. */
