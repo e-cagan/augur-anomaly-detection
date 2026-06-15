@@ -1,0 +1,11 @@
+# Inference-only dependencies (CPU serving image)
+numpy
+opencv-python-headless
+pillow
+onnxruntime
+fastapi
+uvicorn[standard]
+python-multipart
+matplotlib
+torch
+torchvision

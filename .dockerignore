@@ -1,0 +1,30 @@
+# Data & datasets (huge, never needed in image)
+data/
+*.tif
+*.mp4
+
+# Training artifacts
+wandb/
+checkpoints/*.pt
+!checkpoints/model.onnx
+!checkpoints/model.onnx.data
+
+# Python
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Node (frontend build context if shared)
+node_modules/
+frontend/dist/
+
+# Git & IDE
+.git/
+.gitignore
+*.md
+.vscode/
+.idea/
+
+# Env
+.env

@@ -1,0 +1,30 @@
+# Lean CPU inference image for the AUGUR backend.
+# Serves the M3 ONNX model via FastAPI. No CUDA, no training stack.
+
+FROM python:3.10-slim
+
+# System deps: opencv-headless still needs a couple of shared libs at runtime
+# (libGL is avoided by headless, but glib/libgthread are still required).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python deps first (layer caching: deps change rarely, code often).
+# torch/torchvision pulled from the CPU wheel index to avoid the huge CUDA build.
+COPY requirements-inference.txt .
+RUN pip install --no-cache-dir \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        -r requirements-inference.txt
+
+# Copy only what inference needs — NOT training code or .pt checkpoints.
+COPY src/ ./src/
+COPY backend/ ./backend/
+COPY checkpoints/model.onnx* ./checkpoints/
+
+# FastAPI default port
+EXPOSE 8000
+
+# Run the server. Note: no --reload in production.
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
