@@ -155,7 +155,8 @@ async def predict(file: UploadFile = File(...)):
         # its own ONNX session) per call. That is fine for a demo. To optimize
         # later, refactor AnomalyStream to accept a pre-loaded session and share
         # it across requests.
-        raw_scores, top_anomalies = process_video(tmp_path, app.state.onnx_path)
+        raw_scores, top_anomalies, fps = process_video(tmp_path, app.state.onnx_path)
+        fps = fps if fps and fps > 0 else 10.0   # fallback to 10 (UCSD default)
 
         # Convert top anomalies to an overlay PNG
         top = [
@@ -194,6 +195,7 @@ async def predict(file: UploadFile = File(...)):
         "scored_frames": scored,
         "warmup_frames": len(raw_scores) - scored,
         "threshold": threshold,
+        "fps": fps,
         "frames": frames,
         "top_anomalies": top
     }

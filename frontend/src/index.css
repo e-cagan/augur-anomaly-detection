@@ -371,3 +371,30 @@ body {
   .moments-grid { grid-template-columns: repeat(2, 1fr); }
   .moments-head { flex-direction: column; gap: 4px; }
 }
+
+/* ---- synced playback -------------------- */
+ 
+.playback { margin-top: 18px; }
+ 
+.feed-video {
+  width: 100%;
+  max-height: 360px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #000;
+  display: block;
+}
+ 
+.live-readout {
+  display: flex;
+  gap: 18px;
+  align-items: baseline;
+  margin-top: 10px;
+  padding: 0 2px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.lr-frame { color: var(--dim); letter-spacing: 0.08em; }
+.lr-score { color: var(--calm); }
+.lr-score.alarm { color: var(--alarm); font-weight: 700; }
+.lr-warm { color: var(--dim-2); letter-spacing: 0.12em; }

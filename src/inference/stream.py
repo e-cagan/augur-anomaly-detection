@@ -78,6 +78,9 @@ def process_video(video_path, onnx_path, top_n=5):
     scores = []
     scored_records = []   # (score, frame_idx, heatmap, frame_image)
 
+    # Measure the FPS
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    
     frame_idx = 0
     while True:
         ret, frame = cap.read()
@@ -100,7 +103,7 @@ def process_video(video_path, onnx_path, top_n=5):
         for (s, idx, hmap, img) in top
     ]
 
-    return scores, top_anomalies
+    return scores, top_anomalies, fps
 
 
 def process_frames(frame_dir: str, onnx_path: str):
