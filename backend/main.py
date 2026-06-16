@@ -25,6 +25,9 @@ import matplotlib.cm as cm
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Histogram, Gauge
+
 from src.inference.stream import process_frames  # reused; see note on video below
 from src.inference.stream import process_video
 
@@ -105,6 +108,28 @@ app.add_middleware(
     allow_origins=["http://localhost:5173"],
     allow_methods=["*"], allow_headers=["*"],
 )
+
+# Anomaly ratio per processed video (flagged frames / scored frames)
+ANOMALY_RATIO = Gauge(
+    "augur_anomaly_ratio",
+    "Fraction of scored frames flagged as anomalous in the last request",
+)
+
+# Mean anomaly score per processed video — watch for drift vs the calibrated
+# normal mean (~0.000153). A rising mean suggests the input distribution shifted.
+MEAN_SCORE = Gauge(
+    "augur_mean_score",
+    "Mean per-frame anomaly score (raw MSE) of the last processed video",
+)
+
+# Distribution of per-frame scores — a histogram to see the spread, not just mean
+SCORE_HIST = Histogram(
+    "augur_frame_score",
+    "Per-frame anomaly score (raw MSE) distribution",
+    buckets=[1e-4, 1.5e-4, 2e-4, 2.5e-4, 3e-4, 4e-4, 5e-4, 7e-4, 1e-3],
+)
+
+Instrumentator().instrument(app).expose(app)
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +214,15 @@ async def predict(file: UploadFile = File(...)):
                 "score": float(score),
                 "is_anomaly": bool(score > threshold),
             })
+
+    # Filter out the valid scores
+    valid_scores = [f["score"] for f in frames if f["score"] is not None]
+    if valid_scores:
+        flagged = sum(1 for f in frames if f["is_anomaly"])
+        ANOMALY_RATIO.set(flagged / len(valid_scores))
+        MEAN_SCORE.set(sum(valid_scores) / len(valid_scores))
+        for s in valid_scores:
+            SCORE_HIST.observe(s)
 
     return {
         "total_frames": len(raw_scores),

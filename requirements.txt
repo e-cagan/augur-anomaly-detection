@@ -25,6 +25,7 @@ pandas
 # Serving
 fastapi
 uvicorn[standard]
+prometheus-fastapi-instrumentator
 websockets
 python-multipart
 python-dotenv

@@ -398,3 +398,13 @@ body {
 .lr-score { color: var(--calm); }
 .lr-score.alarm { color: var(--alarm); font-weight: 700; }
 .lr-warm { color: var(--dim-2); letter-spacing: 0.12em; }
+
+/* ---- trace explanation note (append to index.css) ------------- */
+
+.trace-note {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dim);
+  padding: 0 6px 14px;
+  margin-top: -6px;
+}

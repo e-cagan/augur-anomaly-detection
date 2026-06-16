@@ -1,0 +1,11 @@
+# Prometheus scrape config for the AUGUR backend.
+# Prometheus reaches the backend over the compose network by service name.
+
+global:
+  scrape_interval: 15s          # how often to pull /metrics
+
+scrape_configs:
+  - job_name: "augur-backend"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8000"]   # compose service name, internal network

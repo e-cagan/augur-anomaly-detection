@@ -30,19 +30,28 @@ function anomalyBands(frames) {
   return bands;
 }
 
-function TipBox({ active, payload }) {
-  if (!active || !payload || !payload.length) return null;
-  const p = payload[0].payload;
-  if (p.score === null) return null;
-  return (
-    <div className="tip">
-      <div className="row"><span className="lab">FRAME</span><span className="val">{p.frame}</span></div>
-      <div className="row">
-        <span className="lab">SURPRISE</span>
-        <span className={"val" + (p.is_anomaly ? " alarm" : "")}>{p.score.toExponential(2)}</span>
+/* Tooltip shows the threshold-relative value (intuitive) AND the raw MSE
+   score (technical transparency). */
+function makeTip(threshold) {
+  return function TipBox({ active, payload }) {
+    if (!active || !payload || !payload.length) return null;
+    const p = payload[0].payload;
+    if (p.rawScore === null || p.rawScore === undefined) return null;
+    const rel = p.rawScore / threshold;
+    return (
+      <div className="tip">
+        <div className="row"><span className="lab">FRAME</span><span className="val">{p.frame}</span></div>
+        <div className="row">
+          <span className="lab">SURPRISE</span>
+          <span className={"val" + (p.is_anomaly ? " alarm" : "")}>{rel.toFixed(2)}×</span>
+        </div>
+        <div className="row">
+          <span className="lab">RAW</span>
+          <span className="val">{p.rawScore.toExponential(2)}</span>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 }
 
 export default function App() {
@@ -90,7 +99,7 @@ export default function App() {
     } catch (e) {
       setError(
         e.message?.includes("fetch")
-          ? "Cannot reach the detector at localhost:8000. Start the backend, then run again."
+          ? "Cannot reach the detector. Start the backend, then run again."
           : e.message
       );
     } finally {
@@ -99,25 +108,37 @@ export default function App() {
   }
 
   const fps = result?.fps || 10;
+  const threshold = result?.threshold || 1;
 
+  // Trace data: store BOTH the threshold-relative value (for the axis) and the
+  // raw score (for the tooltip). Tripwire sits at 1.0x.
   const chartData = useMemo(
-    () => result?.frames.map((f) => ({ frame: f.frame_idx, score: f.score, is_anomaly: f.is_anomaly })) ?? [],
-    [result]
+    () =>
+      result?.frames.map((f) => ({
+        frame: f.frame_idx,
+        rel: f.score === null ? null : f.score / threshold,
+        rawScore: f.score,
+        is_anomaly: f.is_anomaly,
+      })) ?? [],
+    [result, threshold]
   );
 
-  // Progressive reveal: hide scores beyond the playhead so the trace draws in sync
+  // Progressive reveal: hide values beyond the playhead so the trace draws in sync
   const revealedData = useMemo(
-    () => chartData.map((d) => ({ ...d, score: d.frame <= currentFrame ? d.score : null })),
+    () => chartData.map((d) => ({ ...d, rel: d.frame <= currentFrame ? d.rel : null })),
     [chartData, currentFrame]
   );
 
   const bands = useMemo(() => (result ? anomalyBands(result.frames) : []), [result]);
-  const peak = useMemo(() => {
+  const peakRel = useMemo(() => {
     const s = result?.frames.map((f) => f.score).filter((v) => v !== null) ?? [];
-    return s.length ? Math.max(...s) : 0;
-  }, [result]);
+    return s.length ? Math.max(...s) / threshold : 0;
+  }, [result, threshold]);
 
   const liveFrame = result?.frames[currentFrame];
+  const liveRel = liveFrame && liveFrame.score !== null ? liveFrame.score / threshold : null;
+
+  const TipBox = useMemo(() => makeTip(threshold), [threshold]);
 
   return (
     <div className="shell">
@@ -173,11 +194,11 @@ export default function App() {
           </div>
           <div className="stat">
             <div className="k">PEAK SURPRISE</div>
-            <div className="v">{peak.toExponential(1)}</div>
+            <div className="v">{peakRel.toFixed(2)}×</div>
           </div>
           <div className="stat">
-            <div className="k">TRIPWIRE</div>
-            <div className="v amber">{result.threshold.toExponential(1)}</div>
+            <div className="k">ALARM LINE</div>
+            <div className="v amber">1.00×</div>
           </div>
         </section>
       )}
@@ -198,7 +219,7 @@ export default function App() {
               <span className="lr-warm">WARMING UP</span>
             ) : (
               <span className={"lr-score" + (liveFrame.is_anomaly ? " alarm" : "")}>
-                {liveFrame.score.toExponential(2)} {liveFrame.is_anomaly ? "· ANOMALY" : "· normal"}
+                {liveRel.toFixed(2)}× {liveFrame.is_anomaly ? "· ANOMALY" : "· normal"}
               </span>
             )}
           </div>
@@ -213,6 +234,9 @@ export default function App() {
             <span className="item"><span className="swatch amber" />tripwire</span>
             <span className="item"><span className="swatch alarm" />anomaly</span>
           </div>
+        </div>
+        <div className="trace-note">
+          Surprise shown relative to the detection threshold — 1.0× is the alarm line.
         </div>
 
         {result ? (
@@ -234,11 +258,11 @@ export default function App() {
 
               <XAxis dataKey="frame" type="number" domain={[0, result.total_frames]}
                      tickLine={false} interval="preserveStartEnd" minTickGap={40} allowDataOverflow />
-              <YAxis tickFormatter={(v) => v.toExponential(0)} width={56} tickLine={false} />
+              <YAxis tickFormatter={(v) => `${v.toFixed(1)}×`} width={48} tickLine={false} />
 
-              {/* the amber tripwire */}
+              {/* the amber tripwire — now fixed at 1.0x */}
               <ReferenceLine
-                y={result.threshold}
+                y={1.0}
                 stroke="#E6A93C"
                 strokeDasharray="5 4"
                 strokeWidth={1.2}
@@ -253,7 +277,7 @@ export default function App() {
               {/* connectNulls=false leaves a gap over warm-up AND beyond the playhead */}
               <Area
                 type="monotone"
-                dataKey="score"
+                dataKey="rel"
                 stroke="#56C7BE"
                 strokeWidth={1.6}
                 fill="url(#calmFill)"
@@ -292,7 +316,7 @@ export default function App() {
                 />
                 <figcaption className="moment-cap">
                   <span className="moment-frame">FRAME {a.frame_idx}</span>
-                  <span className="moment-score">{a.score.toExponential(2)}</span>
+                  <span className="moment-score">{(a.score / threshold).toFixed(2)}×</span>
                 </figcaption>
               </figure>
             ))}
