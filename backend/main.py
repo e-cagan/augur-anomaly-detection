@@ -24,6 +24,7 @@ import matplotlib.cm as cm
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from prometheus_fastapi_instrumentator import Instrumentator
 from prometheus_client import Histogram, Gauge
@@ -233,3 +234,7 @@ async def predict(file: UploadFile = File(...)):
         "frames": frames,
         "top_anomalies": top
     }
+
+# Serve the built frontend. MUST come AFTER all API routes, otherwise the
+# catch-all static mount would swallow /predict, /health, /metrics.
+app.mount("/", StaticFiles(directory="static", html=True), name="static")

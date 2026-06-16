@@ -1,0 +1,45 @@
+# Combined single-image build for deployment (e.g. Hugging Face Spaces).
+# Backend serves BOTH the API and the built frontend (same origin, no CORS,
+# no nginx). One container, runnable with: docker run -p 7860:7860
+#
+# Build from repo root:
+#   docker build -f docker/Dockerfile.deploy -t augur-deploy .
+
+# ---- Stage 1: build the frontend ----
+FROM node:20-slim AS frontend
+
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm install
+COPY frontend/ .
+# Same-origin: the frontend calls /predict directly (no /api proxy here).
+ENV VITE_API_URL=/predict
+RUN npm run build
+# Output: /app/dist
+
+# ---- Stage 2: backend + bundled frontend ----
+FROM python:3.10-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Python deps (CPU torch wheel, lean serving set)
+COPY requirements-inference.txt .
+RUN pip install --no-cache-dir \
+        --extra-index-url https://download.pytorch.org/whl/cpu \
+        -r requirements-inference.txt
+
+# Backend code + model (onnx + external data)
+COPY src/ ./src/
+COPY backend/ ./backend/
+COPY checkpoints/model.onnx* ./checkpoints/
+
+# Built frontend from stage 1 -> served by FastAPI StaticFiles at /
+COPY --from=frontend /app/dist ./static
+
+# HF Spaces expects the app on port 7860 by default
+EXPOSE 7860
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "7860"]
