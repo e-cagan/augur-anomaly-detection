@@ -19,6 +19,7 @@ shangai/
 
 *.pt
 *.pth
+*.db
 *.onnx
 *.data
 *.engine

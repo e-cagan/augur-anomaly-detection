@@ -418,3 +418,97 @@ frames render as a gap in the trace (honest cold-start).
 - [x] Latency measured: 16.9 ms / 59 fps, real-time on CPU
 - [x] Frontend: timeline + threshold + anomaly bands + heatmap overlays
 - [x] tag `m4`
+
+---
+
+## M5 — Production MLOps
+
+**Date:** 16 June 2026
+**Branch / tag:** `m5`
+
+### Problem
+
+After M4 the system worked but only by hand: the backend ran via `uvicorn`, the
+frontend via `npm run dev`, the model lived as a checkpoint, and "what's
+deployed and how does it perform" was scattered across files. M5 makes it
+production-shaped: containerized and reproducible (`docker compose up`),
+observable (metrics + dashboards), and traceable (model registry). The model
+itself is frozen — M5 is infrastructure around the M3 model, not new modelling.
+
+Done criterion: one command brings up the full stack on a clean machine;
+metrics are visible in a dashboard; the deployed model version is tracked.
+
+### Approach
+
+**5.0 Real-time playback (frontend).** The trace now draws in sync with the
+uploaded video: a playhead follows `video.currentTime` (mapped to frame index
+via the backend-reported fps), the trace reveals progressively, and a live
+readout shows the current frame's surprise + status. This is replay, not a
+WebSocket — the latency is already proven (M4.5), so synchronized playback
+*demonstrates* real-time without the streaming complexity. Scores are shown
+relative to the threshold (1.0x = alarm line) for readability; raw MSE is kept
+in the tooltip for transparency.
+
+**5.1 Backend container.** Lean CPU inference image (`python:3.10-slim`):
+onnxruntime-CPU, opencv-headless, FastAPI, torch (CPU wheel, preprocess only).
+No CUDA — inference runs on ONNX-CPU (59 fps, M4.5), so a GPU image would add
+~5 GB for zero gain. No training stack, no `.pt` checkpoints — only
+`model.onnx` (+ its external-data file `model.onnx.data`, which must travel with
+it). Final image **1.35 GB**.
+
+**5.2 Frontend container.** Multi-stage: Node builds the Vite bundle, nginx
+serves it. Final image **62.8 MB** (build tools don't ship). nginx also reverse-
+proxies `/api/*` to the backend, so the browser talks to one origin — no CORS in
+the composed setup. The API URL is env-configurable (`VITE_API_URL`) so the same
+build also works split across separate hosts (with CORS) for future deployment.
+
+**5.3 docker compose.** `docker compose up --build` brings up the whole stack:
+backend + frontend + Prometheus + Grafana. The backend is `expose`-only (reached
+internally by service name, not published to the host); the frontend publishes
+:8080. End-to-end verified through the browser: upload -> nginx proxy -> backend
+-> timeline. This is the headline deliverable — a one-command reproducible stack.
+
+**5.4 Monitoring (Prometheus + Grafana).** The backend is instrumented
+(`prometheus-fastapi-instrumentator` + custom metrics) and exposes `/metrics`.
+Three signals that actually matter for this system:
+- **Anomaly ratio** (flagged / scored, per video) — model-level signal.
+- **Mean score vs normal baseline** — a Grafana panel with a threshold line at
+  the calibrated normal mean (0.000153). Mean score drifting above it means the
+  input distribution shifted — the core drift signal. (Test001 reads ~0.000316,
+  well above baseline, because it is anomaly-heavy.)
+- **Request count / service health** — standard liveness.
+
+Generic host metrics (CPU/RAM) were deliberately skipped — these three tell the
+operational story without sprawl.
+
+**5.5 Model registry (MLflow).** `scripts/register_model.py` logs the M3 model to
+MLflow (local file-based tracking): parameters (paradigm, input frames, loss,
+threshold 0.000291, calibration method), metrics (AUC 0.840, EER 0.279, latency
+16.9 ms, throughput 59 fps), and the ONNX model via the `mlflow.onnx` flavor,
+registered as **augur-anomaly-detector v1**. This closes the MLOps loop: model ->
+metrics -> registry -> deployment, all in one queryable place. Viewed with
+`mlflow ui`.
+
+### Honest notes
+
+- **Per-request ONNX session.** The backend still builds a session per call —
+  fine for a demo, share a pre-loaded session for production throughput.
+- **Drift panel needs varied input to be interesting.** With a single test clip
+  the mean-score series is flat. Real drift visualization needs feeds of
+  differing content (a normal clip reads ~baseline, an anomalous one reads
+  above). The mechanism is in place; the demo just has limited input.
+- **MLflow is local tracking**, not a hosted server. Sufficient for tracking and
+  the registry locally; a deployed setup (M6) would host the tracking server.
+- **Monitoring scope is intentionally small** — three metrics, not a full
+  observability suite. Matched to a single-model demo.
+
+### M5 Done
+
+- [x] Real-time playback (synced video + trace + live readout)
+- [x] Threshold-relative score display (1.0x alarm line, raw in tooltip)
+- [x] Backend container (lean CPU, 1.35 GB)
+- [x] Frontend container (multi-stage, 62.8 MB, nginx + /api proxy)
+- [x] docker compose: full stack in one command
+- [x] Monitoring: Prometheus + Grafana, 3 panels (anomaly ratio, mean-vs-baseline drift, requests)
+- [x] Model registry: MLflow, augur-anomaly-detector v1 with metrics + ONNX
+- [x] tag `m5`
